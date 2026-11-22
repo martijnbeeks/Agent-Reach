@@ -26,6 +26,7 @@ from .base import Action, Channel, Param
 _UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
 _MAX_RESPONSE_BYTES = 5 * 1024 * 1024
 _ANTIBOT_SCAN_BYTES = 4096
+_BLOCK_PAGE_MAX_CHARS = 2000
 _EXA_MCP = "https://mcp.exa.ai/mcp"
 _EXA_HEADER_RE = re.compile(r"^(Title|URL|Published|Author):\s*(.*)$")
 _EXA_LIMIT_RE = re.compile(
@@ -65,6 +66,15 @@ def _is_antibot_page(body: bytes) -> bool:
         "ray id" in sample or "/cdn-cgi/challenge-platform/" in sample
     )
     return (jina_captcha_warning and challenge_structure) or cloudflare_block
+
+
+def _refuse_block_page(text: str) -> None:
+    """A short page that is only a site's block notice is a failure, not the page content."""
+    from ._reddit_pages import is_block_page
+
+    if len(text) < _BLOCK_PAGE_MAX_CHARS and is_block_page(text):
+        raise ReachError(UPSTREAM_BROKEN, "The site answered with its \"blocked by network security\" page",
+                         hint="The page text is not available this way. For Reddit, use `agent-reach reddit read <url>`.")
 
 
 def _public_url(target: str) -> str:
@@ -213,6 +223,7 @@ class WebChannel(Channel):
     def _exa_read(self, *, target: str, timeout: float) -> list:
         url = _public_url(target)
         text = _exa_call("web_fetch_exa", {"urls": [url], "maxCharacters": 20000}, timeout)
+        _refuse_block_page(text)
         items = _parse_exa_text(text)
         if items:
             items[0]["url"] = items[0]["url"] or url
@@ -227,4 +238,5 @@ class WebChannel(Channel):
             body = self.read(url, timeout=timeout)
         except RuntimeError as exc:
             raise ReachError(UPSTREAM_BROKEN, str(exc)) from None
+        _refuse_block_page(body)
         return [_parse_jina(url, body)]

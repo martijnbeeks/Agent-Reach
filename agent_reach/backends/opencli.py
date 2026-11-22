@@ -48,6 +48,9 @@ def _opencli_error(text: str, login_hint: str):
         return ReachError(PLATFORM_BLOCKED, message, hint=upstream_hint)
     if code in {"RATE_LIMITED", "RATE_LIMIT"} or any(w in low for w in ("http 429", "too many requests", "访问过于频繁")):
         return ReachError(RATE_LIMITED, message)
+    if code == "SECURITY_BLOCK":
+        # Reddit blocks one endpoint per network; another backend may still reach the content.
+        return ReachError(UPSTREAM_BROKEN, message, hint=upstream_hint)
     login_words = ("login", "log in", "logged in", "sign in", "http 401", "登录")
     if not re.search(r"\bHTTP 404\b", message, re.I) and (
             "AUTH" in code or "LOGIN" in code or any(w in low for w in login_words)):
@@ -58,11 +61,19 @@ def _opencli_error(text: str, login_hint: str):
 
 def opencli_call(site: str, args, *, timeout: float, login_hint: str = ""):
     """One bounded command, using an explicit existing browser binding. No retry."""
+    return _run(site, ["opencli", site, *args, "-f", "json"], timeout, login_hint)
+
+
+def opencli_browser(channel: str, args, *, timeout: float):
+    """One `opencli browser ...` page command in the channel's browser binding. No retry."""
+    return _run(channel, ["opencli", "browser", *args], timeout, "")
+
+
+def _run(channel: str, argv, timeout: float, login_hint: str):
     from agent_reach.runtime.browser_binding import environment
     from agent_reach.runtime.run import CommandFailed, run_cmd
 
-    env = environment(site)
-    argv = ["opencli", site, *args, "-f", "json"]
+    env = environment(channel)
     try:
         out = run_cmd(argv, timeout=timeout, env=env)
     except CommandFailed as exc:
