@@ -251,3 +251,17 @@ def test_page_session_follows_the_installed_opencli_syntax(monkeypatch, usage, e
     monkeypatch.setattr("agent_reach.runtime.browser_binding.environment", lambda channel: {})
     opencli.opencli_browser("reddit", ["--session", "s1", "open", "u"], timeout=5)
     assert seen == [expected]
+
+
+def test_page_eval_accepts_plain_text_output(monkeypatch):
+    from agent_reach.backends import opencli
+    from agent_reach.runtime import run
+
+    monkeypatch.setattr(opencli, "_SESSION_FLAG", False)
+    monkeypatch.setattr(run, "run_cmd", lambda argv, **kw: "<html><body>page</body></html>\n")
+    monkeypatch.setattr("agent_reach.runtime.browser.save_session", lambda: None)
+    monkeypatch.setattr("agent_reach.runtime.browser_binding.environment", lambda channel: {})
+    out = opencli.opencli_browser("reddit", ["--session", "s1", "eval", "x"], timeout=5)
+    assert out["data"] == "<html><body>page</body></html>"
+    with pytest.raises(ReachError):
+        opencli.opencli_browser("reddit", ["--session", "s1", "open", "u"], timeout=5)

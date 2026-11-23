@@ -95,10 +95,11 @@ def opencli_browser(channel: str, args, *, timeout: float):
     args = list(args)
     if len(args) >= 2 and args[0] == "--session" and not _session_flag(channel):
         args = args[1:]
-    return _run(channel, ["opencli", "browser", *args], timeout, "")
+    # Older OpenCLI prints an `eval` result as plain text instead of JSON.
+    return _run(channel, ["opencli", "browser", *args], timeout, "", raw_text="eval" in args)
 
 
-def _run(channel: str, argv, timeout: float, login_hint: str):
+def _run(channel: str, argv, timeout: float, login_hint: str, raw_text: bool = False):
     from agent_reach.runtime.browser_binding import environment
     from agent_reach.runtime.run import CommandFailed, run_cmd
 
@@ -110,7 +111,9 @@ def _run(channel: str, argv, timeout: float, login_hint: str):
     try:
         data = json.loads(out)
     except ValueError:
-        raise _opencli_error(out, login_hint) from None
+        if not (raw_text and out.strip()):
+            raise _opencli_error(out, login_hint) from None
+        data = {"ok": True, "data": out.strip()}
     if isinstance(data, dict) and data.get("ok") is False:
         raise _opencli_error(out, login_hint)
     from agent_reach.runtime import browser
