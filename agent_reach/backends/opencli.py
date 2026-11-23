@@ -64,8 +64,37 @@ def opencli_call(site: str, args, *, timeout: float, login_hint: str = ""):
     return _run(site, ["opencli", site, *args, "-f", "json"], timeout, login_hint)
 
 
+_SESSION_FLAG = None  # True: `browser --session <name> <cmd>`; False: `browser <name> <cmd>`
+
+
+def _session_flag(channel: str) -> bool:
+    """Whether the installed OpenCLI takes the page session as `--session`.
+
+    OpenCLI releases disagree: some take `browser --session <name> <cmd>`, others
+    reject the flag and want `browser <name> <cmd>`. Read the usage line once.
+    """
+    global _SESSION_FLAG
+    if _SESSION_FLAG is None:
+        from agent_reach.runtime.browser_binding import environment
+        from agent_reach.runtime.run import CommandFailed, run_cmd
+
+        try:
+            usage = run_cmd(["opencli", "browser", "--help"], timeout=15, env=environment(channel))
+        except CommandFailed as exc:
+            usage = exc.stdout or exc.stderr or ""
+        _SESSION_FLAG = "browser <session>" not in usage
+    return _SESSION_FLAG
+
+
 def opencli_browser(channel: str, args, *, timeout: float):
-    """One `opencli browser ...` page command in the channel's browser binding. No retry."""
+    """One `opencli browser ...` page command in the channel's browser binding. No retry.
+
+    Callers pass `["--session", name, cmd, ...]`; it is rewritten to the
+    positional form when the installed OpenCLI wants that.
+    """
+    args = list(args)
+    if len(args) >= 2 and args[0] == "--session" and not _session_flag(channel):
+        args = args[1:]
     return _run(channel, ["opencli", "browser", *args], timeout, "")
 
 

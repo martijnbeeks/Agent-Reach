@@ -234,3 +234,20 @@ def test_public_web_read_of_a_blocked_reddit_page_is_not_ok(monkeypatch):
     out = run_action(RedditChannel(), "read", {"target": POST_LINK}, only_backend="public-web")
     assert out["ok"] is False
     assert out["items"] == []
+
+
+@pytest.mark.parametrize("usage, expected", [
+    ("Usage: opencli browser [options] [command]\n  --session <name>  Page session", ["opencli", "browser", "--session", "s1", "open", "u"]),
+    ("Usage: opencli browser <session> <command> [options]", ["opencli", "browser", "s1", "open", "u"]),
+])
+def test_page_session_follows_the_installed_opencli_syntax(monkeypatch, usage, expected):
+    from agent_reach.backends import opencli
+    from agent_reach.runtime import run
+
+    seen = []
+    monkeypatch.setattr(opencli, "_SESSION_FLAG", None)
+    monkeypatch.setattr(run, "run_cmd", lambda argv, **kw: usage if argv[-1] == "--help" else seen.append(argv) or "{}")
+    monkeypatch.setattr("agent_reach.runtime.browser.save_session", lambda: None)
+    monkeypatch.setattr("agent_reach.runtime.browser_binding.environment", lambda channel: {})
+    opencli.opencli_browser("reddit", ["--session", "s1", "open", "u"], timeout=5)
+    assert seen == [expected]
