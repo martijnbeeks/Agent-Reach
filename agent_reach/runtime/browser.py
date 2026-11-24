@@ -361,6 +361,35 @@ def can_load_extension() -> bool:
     return _load_state().get("backend") == "cloakbrowser" or sys.platform != "win32"
 
 
+_PLATFORM_TOKENS = {
+    "darwin": "Macintosh; Intel Mac OS X 10_15_7",
+    "win32": "Windows NT 10.0; Win64; x64",
+}
+
+
+def _normal_user_agent(exe: str) -> Optional[str]:
+    """The user agent the same Chrome sends with a window.
+
+    Headless Chrome announces itself as `HeadlessChrome`, and some sites
+    (Reddit) answer that with a block page even for a logged-in profile.
+    `AGENT_REACH_USER_AGENT` overrides; an unreadable version sends none.
+    """
+    override = os.environ.get("AGENT_REACH_USER_AGENT", "").strip()
+    if override:
+        return override
+    try:
+        out = subprocess.run([exe, "--version"], capture_output=True, text=True, timeout=10,
+                             **windows_hidden_kwargs()).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    found = re.search(r"(\d+)\.\d+\.\d+", out or "")
+    if not found:
+        return None
+    token = _PLATFORM_TOKENS.get(sys.platform, "X11; Linux x86_64")
+    return (f"Mozilla/5.0 ({token}) AppleWebKit/537.36 (KHTML, like Gecko) "
+            f"Chrome/{found.group(1)}.0.0.0 Safari/537.36")
+
+
 def chrome_argv(exe: str, url: str, *, pipe: bool, headless: bool = True) -> List[str]:
     argv = [
         exe,
@@ -372,6 +401,9 @@ def chrome_argv(exe: str, url: str, *, pipe: bool, headless: bool = True) -> Lis
     ]
     if headless:
         argv += ["--headless=new"]
+        agent = _normal_user_agent(exe)
+        if agent:
+            argv += [f"--user-agent={agent}"]
     if pipe:
         argv += ["--remote-debugging-pipe", "--enable-unsafe-extension-debugging"]
     if os.environ.get("AGENT_REACH_TEST_MOCK_KEYCHAIN") == "1":

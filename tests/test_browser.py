@@ -268,3 +268,15 @@ def test_restore_failure_preserves_the_original_snapshot(home, monkeypatch):
     with pytest.raises(ReachError,match='retained'):
         browser.restore_session()
     assert path.read_text()==original
+
+
+def test_headless_chrome_sends_the_windowed_user_agent(tmp_path, monkeypatch):
+    import stat
+    chrome = tmp_path / 'chrome'
+    chrome.write_text('#!/bin/sh\necho "Google Chrome 158.0.7310.12"\n')
+    chrome.chmod(chrome.stat().st_mode | stat.S_IEXEC)
+    monkeypatch.delenv('AGENT_REACH_USER_AGENT', raising=False)
+    argv = browser.chrome_argv(str(chrome), 'about:blank', pipe=False)
+    [agent] = [a for a in argv if a.startswith('--user-agent=')]
+    assert 'Chrome/158.0.0.0' in agent and 'Headless' not in agent
+    assert not any(a.startswith('--user-agent=') for a in browser.chrome_argv(str(chrome), 'about:blank', pipe=False, headless=False))
