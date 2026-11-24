@@ -112,6 +112,46 @@ def test_page_without_posts_says_why(html, code):
     assert err.value.code == code
 
 
+@pytest.mark.parametrize("parse", [pages.parse_listing, pages.parse_search,
+                                   lambda html, _limit: pages.parse_post(html)])
+def test_old_reddit_login_wall_asks_for_login(parse):
+    # What old.reddit.com served a logged-out Agent Reach browser on 2026-11-23 for /search?q=python:
+    # new Reddit's "Log in to use old Reddit" page (scripts, styles and tokens stripped).
+    with pytest.raises(ReachError) as err:
+        parse(_page("old_reddit_login_wall.html"), 5)
+    assert err.value.code == "NEED_LOGIN"
+    assert "Log in to use old Reddit" in err.value.message
+
+
+def test_web_component_login_form_counts_as_a_login_wall():
+    html = ('<html><body class="scroll-is-blocked"><faceplate-form id="login" '
+            'action="/svc/shreddit/account/login"></faceplate-form></body></html>')
+    with pytest.raises(ReachError) as err:
+        pages.parse_search(html, 5)
+    assert err.value.code == "NEED_LOGIN"
+
+
+def test_unrecognized_layout_names_the_page_title():
+    with pytest.raises(ReachError) as err:
+        pages.parse_listing("<html><head><title>Something new</title></head><body class=\"loggedin\"></body></html>", 5)
+    assert err.value.code == "UPSTREAM_BROKEN"
+    assert "'Something new'" in err.value.message
+
+
+def test_old_reddit_login_wall_stops_the_search_with_need_login(monkeypatch):
+    def blocked(*args, **kwargs):
+        raise _opencli_error(SECURITY_BLOCK, "")
+
+    monkeypatch.setattr(reddit, "opencli_call", blocked)
+    monkeypatch.setattr(reddit, "_page_html", lambda url, timeout: _page("old_reddit_login_wall.html"))
+    monkeypatch.setattr("agent_reach.runtime.dispatch._channel_added", lambda channel: True)
+    out = run_action(RedditChannel(), "search", {"query": "intertrigo", "limit": 2, "sort": "relevance"})
+    assert out["ok"] is False
+    assert out["error"]["code"] == "NEED_LOGIN"
+    assert [(a["backend"], a["result"]) for a in out["meta"]["attempts"]][:2] == [
+        ("opencli", "UPSTREAM_BROKEN"), ("old-reddit", "NEED_LOGIN")]
+
+
 @pytest.mark.parametrize("target,url", [
     ("https://www.reddit.com/r/ClaudeAI/comments/1y2jxny/what_keeps/",
      "https://old.reddit.com/r/ClaudeAI/comments/1y2jxny/what_keeps/?sort=top&limit=20"),

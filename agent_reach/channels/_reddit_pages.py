@@ -37,6 +37,9 @@ _BLOCK_RE = re.compile(r"blocked by network security", re.I)
 _RATE_RE = re.compile(r"whoa there,? pardner|too many requests", re.I)
 _EMPTY_RE = re.compile(r"there doesn.t seem to be anything here|no results found|page not found|"
                        r"this community has been banned|is a private community", re.I)
+# Since late 2026 old.reddit.com answers logged-out visitors with new Reddit's login page
+# ("Log in to use old Reddit"), built from web components instead of a plain <form>.
+_OLD_LOGIN_WALL_RE = re.compile(r"log in to use old reddit|accounts are required to access old reddit", re.I)
 _POST_ID_RE = re.compile(r"[a-z0-9]{1,12}")
 _POST_PATH_RE = re.compile(r"(?:/r/[A-Za-z0-9_]+)?/comments/[A-Za-z0-9]+(?:/[^/?#]*)?/?")
 _VOID = frozenset({"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta",
@@ -161,11 +164,18 @@ def _explain_empty(root: _Node, html: str, what: str) -> NoReturn:
         raise ReachError(RATE_LIMITED, f"Reddit rate limited the {what} page")
     if _EMPTY_RE.search(text):
         raise ReachError(NOT_FOUND, f"Reddit shows nothing for this {what}")
+    if _OLD_LOGIN_WALL_RE.search(text) or root.find(lambda n: n.tag == "auth-flow-login"):
+        raise ReachError(NEED_LOGIN, f"old.reddit.com showed its \"Log in to use old Reddit\" page for the {what}",
+                         hint="Reddit only serves old.reddit.com to logged-in accounts. Ask the user to log in to "
+                              "reddit.com in the Agent Reach browser and finish the login before the window closes.")
     body = root.find(lambda n: n.tag == "body")
-    login_form = root.find(lambda n: n.tag == "form" and "login" in n.attrs.get("action", "") + n.attrs.get("id", ""))
+    login_form = root.find(lambda n: n.tag in {"form", "faceplate-form"}
+                           and "login" in n.attrs.get("action", "") + n.attrs.get("id", ""))
     if login_form and not (body and "loggedin" in body.classes()):
         raise ReachError(NEED_LOGIN, f"old.reddit.com asked for a login on the {what} page")
-    raise ReachError(UPSTREAM_BROKEN, f"old.reddit.com {what} page layout was not recognized")
+    title = root.find(lambda n: n.tag == "title")
+    seen = f" (page title: {title.text()[:80]!r})" if title and title.text() else ""
+    raise ReachError(UPSTREAM_BROKEN, f"old.reddit.com {what} page layout was not recognized{seen}")
 
 
 def _link_item(thing: _Node) -> dict:
